@@ -11,9 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/rpc"
 	"testing"
 	"time"
 
+	msgpackrpc "github.com/hashicorp/net-rpc-msgpackrpc"
+	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,6 +26,7 @@ import (
 	"github.com/hashicorp/consul/agent/structs"
 	"github.com/hashicorp/consul/agent/token"
 	"github.com/hashicorp/consul/sdk/testutil"
+	"github.com/hashicorp/consul/testrpc"
 )
 
 // TODO(kyhavlov): replace with t.Deadline()
@@ -452,4 +456,135 @@ func TestCADelegateWithState_GenerateCASignRequest(t *testing.T) {
 	d := &caDelegateWithState{Server: &s}
 	req := d.generateCASignRequest("A")
 	require.Equal(t, "east", req.RequestDatacenter())
+}
+
+func TestCAManager_VaultProvider_WithIntermediateAsPrimaryCA(t *testing.T) {
+	if testing.Short() {
+		t.Skip("too slow for testing.Short")
+	}
+	ca.SkipIfVaultNotPresent(t)
+
+	vault := ca.NewTestVaultServer(t)
+	vclient := vault.Client()
+	generateExternalRootCA(t, vclient)
+
+	meshRootPath := "pki-root"
+	setupMeshRootCA(t, vclient, meshRootPath)
+
+	_, s1 := testServerWithConfig(t, func(c *Config) {
+		c.CAConfig = &structs.CAConfiguration{
+			Provider: "vault",
+			Config: map[string]interface{}{
+				"Address":             vault.Addr,
+				"Token":               vault.RootToken,
+				"RootPKIPath":         meshRootPath,
+				"IntermediatePKIPath": "pki-intermediate/",
+				// TODO: there are failures to init the CA system if these are not set
+				// to the values of the already initialized CA.
+				"PrivateKeyType": "ec",
+				"PrivateKeyBits": 256,
+			},
+		}
+	})
+	defer s1.Shutdown()
+	testrpc.WaitForTestAgent(t, s1.RPC, "dc1")
+
+	codec := rpcClient(t, s1)
+	defer codec.Close()
+
+	roots := structs.IndexedCARoots{}
+	err := msgpackrpc.CallWithCodec(codec, "ConnectCA.Roots", &structs.DCSpecificRequest{}, &roots)
+	require.NoError(t, err)
+	require.Len(t, roots.Roots, 1)
+
+	cert1 := getLeafCert(t, codec, roots.TrustDomain)
+
+	pool := x509.NewCertPool()
+	ok := pool.AppendCertsFromPEM([]byte(roots.Roots[0].RootCert))
+	if !ok {
+		t.Fatalf("Failed to add root CA")
+	}
+
+	_, err = cert1.Verify(x509.VerifyOptions{
+		Roots: pool,
+		//Intermediates: intermediates,
+	})
+	require.NoError(t, err)
+
+	t.Fatalf("not done yet")
+}
+
+func getLeafCert(t *testing.T, codec rpc.ClientCodec, trustDomain string) *x509.Certificate {
+	pk, pkPEM, err := connect.GeneratePrivateKey()
+	_ = pkPEM // TODO:
+	require.NoError(t, err)
+	spiffeID := &connect.SpiffeIDService{
+		Host:       trustDomain,
+		Service:    "srv1",
+		Datacenter: "dc1",
+	}
+	csr, err := connect.CreateCSR(spiffeID, pk, nil, nil)
+	require.NoError(t, err)
+
+	req := structs.CASignRequest{CSR: csr}
+	cert := structs.IssuedCert{}
+	err = msgpackrpc.CallWithCodec(codec, "ConnectCA.Sign", &req, &cert)
+	require.NoError(t, err)
+
+	c, err := connect.ParseCert(cert.CertPEM)
+	require.NoError(t, err)
+	return c
+}
+
+func generateExternalRootCA(t *testing.T, client *vaultapi.Client) {
+	t.Helper()
+	err := client.Sys().Mount("corp", &vaultapi.MountInput{
+		Type:        "pki",
+		Description: "External root, probably corporate CA",
+		Config: vaultapi.MountConfigInput{
+			MaxLeaseTTL:     "2400h",
+			DefaultLeaseTTL: "1h",
+		},
+	})
+	require.NoError(t, err, "failed to mount")
+
+	_, err = client.Logical().Write("corp/root/generate/internal", map[string]interface{}{
+		"common_name": "corporate CA",
+		"ttl":         "2400h",
+	})
+	require.NoError(t, err, "failed to generate root")
+}
+
+func setupMeshRootCA(t *testing.T, client *vaultapi.Client, path string) {
+	t.Helper()
+	err := client.Sys().Mount(path, &vaultapi.MountInput{
+		Type:        "pki",
+		Description: "mesh root for Consul CA",
+		Config: vaultapi.MountConfigInput{
+			MaxLeaseTTL:     "2200h",
+			DefaultLeaseTTL: "1h",
+		},
+	})
+	require.NoError(t, err, "failed to mount")
+
+	out, err := client.Logical().Write(path+"/intermediate/generate/internal", map[string]interface{}{
+		"common_name": "mesh root CA",
+		"ttl":         "2200h",
+		"key_type":    "ec",
+		"key_bits":    256,
+	})
+	require.NoError(t, err, "failed to generate root")
+
+	intermediate, err := client.Logical().Write("corp/root/sign-intermediate", map[string]interface{}{
+		"csr":            out.Data["csr"],
+		"use_csr_values": true,
+		"format":         "pem_bundle",
+		"ttl":            "2200h",
+	})
+	require.NoError(t, err, "failed to sign intermediate")
+
+	_, err = client.Logical().Write(path+"/intermediate/set-signed", map[string]interface{}{
+		"certificate": intermediate.Data["certificate"],
+	})
+	require.NoError(t, err, "failed to set signed intermediate")
 }
