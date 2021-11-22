@@ -1559,8 +1559,10 @@ func (f *aclFilter) redactPreparedQueryTokens(query **structs.PreparedQuery) {
 
 // filterPreparedQueries is used to filter prepared queries based on ACL rules.
 // We prune entries the user doesn't have access to, and we redact any tokens
-// if the user doesn't have a management token.
-func (f *aclFilter) filterPreparedQueries(queries *structs.PreparedQueries) {
+// if the user doesn't have a management token. Returns true if any (named)
+// queries were removed - un-named queries are meant to be ephemeral and can
+// only be enumerated by a management token
+func (f *aclFilter) filterPreparedQueries(queries *structs.PreparedQueries) bool {
 	var authzContext acl.AuthorizerContext
 	structs.DefaultEnterpriseMetaInDefaultPartition().FillAuthzContext(&authzContext)
 	// Management tokens can see everything with no filtering.
@@ -1568,17 +1570,22 @@ func (f *aclFilter) filterPreparedQueries(queries *structs.PreparedQueries) {
 	// the 1.4 ACL rewrite. The global-management token will provide unrestricted query privileges
 	// so asking for ACLWrite should be unnecessary.
 	if f.authorizer.ACLWrite(&authzContext) == acl.Allow {
-		return
+		return false
 	}
 
 	// Otherwise, we need to see what the token has access to.
+	var namedQueriesRemoved bool
 	ret := make(structs.PreparedQueries, 0, len(*queries))
 	for _, query := range *queries {
 		// If no prefix ACL applies to this query then filter it, since
 		// we know at this point the user doesn't have a management
 		// token, otherwise see what the policy says.
-		prefix, ok := query.GetACLPrefix()
-		if !ok || f.authorizer.PreparedQueryRead(prefix, &authzContext) != acl.Allow {
+		prefix, hasName := query.GetACLPrefix()
+		switch {
+		case hasName && f.authorizer.PreparedQueryRead(prefix, &authzContext) != acl.Allow:
+			namedQueriesRemoved = true
+			fallthrough
+		case !hasName:
 			f.logger.Debug("dropping prepared query from result due to ACLs", "query", query.ID)
 			continue
 		}
@@ -1590,6 +1597,7 @@ func (f *aclFilter) filterPreparedQueries(queries *structs.PreparedQueries) {
 		ret = append(ret, final)
 	}
 	*queries = ret
+	return namedQueriesRemoved
 }
 
 func (f *aclFilter) filterToken(token **structs.ACLToken) {
@@ -1851,7 +1859,7 @@ func filterACLWithAuthorizer(logger hclog.Logger, authorizer acl.Authorizer, sub
 		filt.filterSessions(&v.Sessions)
 
 	case *structs.IndexedPreparedQueries:
-		filt.filterPreparedQueries(&v.Queries)
+		v.QueryMeta.ResultsFilteredByACLs = filt.filterPreparedQueries(&v.Queries)
 
 	case **structs.PreparedQuery:
 		filt.redactPreparedQueryTokens(v)
