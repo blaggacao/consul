@@ -342,7 +342,7 @@ func TestCAManager_UpdateConfigWhileRenewIntermediate(t *testing.T) {
 	require.EqualValues(t, caStateInitialized, manager.state)
 }
 
-func TestCAManager_SignLeafWithExpiredCert(t *testing.T) {
+func TestCAManager_SignCertificate_WithExpiredCert(t *testing.T) {
 	if testing.Short() {
 		t.Skip("too slow for testing.Short")
 	}
@@ -365,7 +365,6 @@ func TestCAManager_SignLeafWithExpiredCert(t *testing.T) {
 	}
 
 	for _, arg := range args {
-
 		t.Run(arg.testName, func(t *testing.T) {
 			// No parallel execution because we change globals
 			// Set the interval and drift buffer low for renewing the cert.
@@ -385,10 +384,8 @@ func TestCAManager_SignLeafWithExpiredCert(t *testing.T) {
 			delegate := NewMockCAServerDelegate(t, conf)
 			manager := NewCAManager(delegate, nil, testutil.Logger(t), conf)
 
-			err, rootPEM := generatePem(arg.notBeforeRoot, arg.notAfterRoot)
-			require.NoError(t, err)
-			err, intermediatePEM := generatePem(arg.notBeforeIntermediate, arg.notAfterIntermediate)
-			require.NoError(t, err)
+			rootPEM := generateCertPEM(t, arg.notBeforeRoot, arg.notAfterRoot)
+			intermediatePEM := generateCertPEM(t, arg.notBeforeIntermediate, arg.notAfterIntermediate)
 			manager.providerShim = &mockCAProvider{
 				callbackCh:      delegate.callbackCh,
 				rootPEM:         rootPEM,
@@ -404,7 +401,7 @@ func TestCAManager_SignLeafWithExpiredCert(t *testing.T) {
 			// Call RenewIntermediate and then confirm the RPCs and provider calls
 			// happen in the expected order.
 
-			_, err = manager.SignCertificate(&x509.CertificateRequest{}, &connect.SpiffeIDAgent{})
+			_, err := manager.SignCertificate(&x509.CertificateRequest{}, &connect.SpiffeIDAgent{})
 
 			if arg.isError {
 				require.Error(t, err)
@@ -416,7 +413,8 @@ func TestCAManager_SignLeafWithExpiredCert(t *testing.T) {
 	}
 }
 
-func generatePem(notBefore time.Time, notAfter time.Time) (error, string) {
+func generateCertPEM(t *testing.T, notBefore time.Time, notAfter time.Time) string {
+	t.Helper()
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(2019),
 		Subject: pkix.Name{
@@ -435,25 +433,18 @@ func generatePem(notBefore time.Time, notAfter time.Time) (error, string) {
 		BasicConstraintsValid: true,
 	}
 	caPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	if err != nil {
-		return err, ""
-	}
+	require.NoError(t, err, "failed to generate key")
+
 	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
-	if err != nil {
-		return err, ""
-	}
+	require.NoError(t, err, "failed to create cert")
+
 	caPEM := new(bytes.Buffer)
-	pem.Encode(caPEM, &pem.Block{
+	err = pem.Encode(caPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: caBytes,
 	})
-
-	caPrivKeyPEM := new(bytes.Buffer)
-	pem.Encode(caPrivKeyPEM, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(caPrivKey),
-	})
-	return err, caPEM.String()
+	require.NoError(t, err, "failed to encode")
+	return caPEM.String()
 }
 
 func TestCADelegateWithState_GenerateCASignRequest(t *testing.T) {
