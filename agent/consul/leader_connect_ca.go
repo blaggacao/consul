@@ -1470,21 +1470,16 @@ func (c *CAManager) SignCertificate(csr *x509.CertificateRequest, spiffeID conne
 
 	connect.HackSANExtensionForCSR(csr)
 
-	_, root, err := state.CARootActive(nil)
-	if err != nil {
-		return nil, err
-	}
-
 	// Check if the root expired before using it to sign.
 	// TODO: we store NotBefore and NotAfter on this struct, so we could avoid
 	// parsing the cert here.
-	err = c.checkExpired(root.RootCert)
+	err = c.checkExpired(caRoot.RootCert)
 	if err != nil {
 		return nil, fmt.Errorf("root expired: %w", err)
 	}
 
-	if c.isIntermediateUsedToSignLeaf() && len(root.IntermediateCerts) > 0 {
-		inter := root.IntermediateCerts[len(root.IntermediateCerts)-1]
+	if c.isIntermediateUsedToSignLeaf() && len(caRoot.IntermediateCerts) > 0 {
+		inter := caRoot.IntermediateCerts[len(caRoot.IntermediateCerts)-1]
 		if err := c.checkExpired(inter); err != nil {
 			return nil, fmt.Errorf("intermediate expired: %w", err)
 		}
