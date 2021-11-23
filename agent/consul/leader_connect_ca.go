@@ -1470,28 +1470,27 @@ func (c *CAManager) SignCertificate(csr *x509.CertificateRequest, spiffeID conne
 
 	connect.HackSANExtensionForCSR(csr)
 
-	root, err := provider.ActiveRoot()
+	_, root, err := state.CARootActive(nil)
 	if err != nil {
 		return nil, err
 	}
+
 	// Check if the root expired before using it to sign.
-	err = c.checkExpired(root)
+	// TODO: we store NotBefore and NotAfter on this struct, so we could avoid
+	// parsing the cert here.
+	err = c.checkExpired(root.RootCert)
 	if err != nil {
 		return nil, fmt.Errorf("root expired: %w", err)
 	}
 
-	inter, err := provider.ActiveIntermediate()
-	if err != nil {
-		return nil, err
-	}
-	// Check if the intermediate expired before using it to sign.
-	err = c.checkExpired(inter)
-	if err != nil {
-		return nil, fmt.Errorf("intermediate expired: %w", err)
+	if c.isIntermediateUsedToSignLeaf() && len(root.IntermediateCerts) > 0 {
+		inter := root.IntermediateCerts[len(root.IntermediateCerts)-1]
+		if err := c.checkExpired(inter); err != nil {
+			return nil, fmt.Errorf("intermediate expired: %w", err)
+		}
 	}
 
 	// All seems to be in order, actually sign it.
-
 	pem, err := provider.Sign(csr)
 	if err == ca.ErrRateLimited {
 		return nil, ErrRateLimited
@@ -1503,11 +1502,6 @@ func (c *CAManager) SignCertificate(csr *x509.CertificateRequest, spiffeID conne
 	// Append any intermediates needed by this root.
 	for _, p := range caRoot.IntermediateCerts {
 		pem = pem + ca.EnsureTrailingNewline(p)
-	}
-
-	// Append our local CA's intermediate if there is one.
-	if inter != root {
-		pem = pem + ca.EnsureTrailingNewline(inter)
 	}
 
 	modIdx, err := c.delegate.ApplyCALeafRequest()

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/rpc"
+	"net/url"
 	"testing"
 	"time"
 
@@ -385,11 +386,14 @@ func TestCAManager_SignCertificate_WithExpiredCert(t *testing.T) {
 			conf.ConnectEnabled = true
 			conf.PrimaryDatacenter = "dc1"
 			conf.Datacenter = "dc2"
-			delegate := NewMockCAServerDelegate(t, conf)
-			manager := NewCAManager(delegate, nil, testutil.Logger(t), conf)
 
 			rootPEM := generateCertPEM(t, arg.notBeforeRoot, arg.notAfterRoot)
 			intermediatePEM := generateCertPEM(t, arg.notBeforeIntermediate, arg.notAfterIntermediate)
+
+			delegate := NewMockCAServerDelegate(t, conf)
+			delegate.primaryRoot.RootCert = rootPEM
+			manager := NewCAManager(delegate, nil, testutil.Logger(t), conf)
+
 			manager.providerShim = &mockCAProvider{
 				callbackCh:      delegate.callbackCh,
 				rootPEM:         rootPEM,
@@ -399,14 +403,15 @@ func TestCAManager_SignCertificate_WithExpiredCert(t *testing.T) {
 
 			// Simulate Wait half the TTL for the cert to need renewing.
 			manager.timeNow = func() time.Time {
-				return time.Now().Add(500 * time.Millisecond)
+				return time.Now().UTC().Add(500 * time.Millisecond)
 			}
 
 			// Call RenewIntermediate and then confirm the RPCs and provider calls
 			// happen in the expected order.
 
-			_, err := manager.SignCertificate(&x509.CertificateRequest{}, &connect.SpiffeIDAgent{})
-
+			_, err := manager.SignCertificate(&x509.CertificateRequest{
+				URIs: []*url.URL{connect.SpiffeIDAgent{Host: "foo"}.URI()},
+			}, &connect.SpiffeIDAgent{})
 			if arg.isError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), arg.errorMsg)
