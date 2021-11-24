@@ -1486,10 +1486,12 @@ func (f *aclFilter) filterNodeDump(dump *structs.NodeDump) bool {
 	return removed
 }
 
-// filterServiceDump is used to filter nodes based on ACL rules.
-func (f *aclFilter) filterServiceDump(services *structs.ServiceDump) {
+// filterServiceDump is used to filter nodes based on ACL rules. Returns true
+// if any elements were removed.
+func (f *aclFilter) filterServiceDump(services *structs.ServiceDump) bool {
 	svcs := *services
 	var authzContext acl.AuthorizerContext
+	var removed bool
 
 	for i := 0; i < len(svcs); i++ {
 		service := svcs[i]
@@ -1507,10 +1509,12 @@ func (f *aclFilter) filterServiceDump(services *structs.ServiceDump) {
 		}
 
 		f.logger.Debug("dropping service from result due to ACLs", "service", service.GatewayService.Service)
+		removed = true
 		svcs = append(svcs[:i], svcs[i+1:]...)
 		i--
 	}
 	*services = svcs
+	return removed
 }
 
 // filterNodes is used to filter through all parts of a node list and remove
@@ -1840,7 +1844,7 @@ func filterACLWithAuthorizer(logger hclog.Logger, authorizer acl.Authorizer, sub
 		v.QueryMeta.ResultsFilteredByACLs = filt.filterNodeDump(&v.Dump)
 
 	case *structs.IndexedServiceDump:
-		filt.filterServiceDump(&v.Dump)
+		v.QueryMeta.ResultsFilteredByACLs = filt.filterServiceDump(&v.Dump)
 
 	case *structs.IndexedNodes:
 		filt.filterNodes(&v.Nodes)
