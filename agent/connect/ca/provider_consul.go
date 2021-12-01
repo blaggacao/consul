@@ -160,8 +160,7 @@ func (c *ConsulProvider) ActiveRoot() (string, error) {
 	return providerState.RootCert, nil
 }
 
-// GenerateRoot initializes a new root certificate and private key
-// if needed.
+// GenerateRoot initializes a new root certificate and private key if needed.
 func (c *ConsulProvider) GenerateRoot() error {
 	providerState, err := c.getState()
 	if err != nil {
