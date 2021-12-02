@@ -189,9 +189,33 @@ func resolveListenerTLSConfig(gatewayTLSCfg *structs.GatewayTLSConfig, listenerC
 
 	mergedCfg.SDS = resolvedSDSCfg
 
-	// TODO: merge TLS config
+	if gatewayTLSCfg != nil {
+		mergedCfg.TLSMinVersion = gatewayTLSCfg.TLSMinVersion
+		mergedCfg.TLSMaxVersion = gatewayTLSCfg.TLSMaxVersion
+		mergedCfg.CipherSuites = gatewayTLSCfg.CipherSuites
+	}
 
-	return &mergedCfg, err
+	if listenerCfg.TLS != nil {
+		if listenerCfg.TLS.TLSMinVersion != nil {
+			mergedCfg.TLSMinVersion = listenerCfg.TLS.TLSMinVersion
+		}
+		if listenerCfg.TLS.TLSMaxVersion != nil {
+			mergedCfg.TLSMaxVersion = listenerCfg.TLS.TLSMaxVersion
+		}
+		if listenerCfg.TLS.CipherSuites != nil {
+			mergedCfg.CipherSuites = listenerCfg.TLS.CipherSuites
+		}
+	}
+
+	// Validate. Configuring cipher suites is only applicable to connections negotiated
+	// via TLS 1.2 or earlier. Other cases shouldn't be possible as we validate them at
+	// input but be resilient to bugs later.
+	switch {
+	case *mergedCfg.TLSMinVersion >= types.TLSv1_3 && len(*mergedCfg.CipherSuites) != 0:
+		return nil, fmt.Errorf("configuring CipherSuites is only applicable to conncetions negotiated with TLS 1.2 or earlier, TLSMinVersion is set to %s", mergedCfg.TLSMinVersion)
+	}
+
+	return &mergedCfg, nil
 }
 
 func resolveListenerSDSConfig(gatewaySDSCfg *structs.GatewayTLSSDSConfig, listenerTLSCfg *structs.GatewayTLSConfig, listenerPort int) (*structs.GatewayTLSSDSConfig, error) {
