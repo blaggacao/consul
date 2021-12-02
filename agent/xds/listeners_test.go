@@ -642,6 +642,12 @@ func TestListenersFromSnapshot(t *testing.T) {
 							LocalBindPort:   8083,
 						},
 					},
+					{Protocol: "http", Port: 8084}: {
+						{
+							DestinationName: "s4",
+							LocalBindPort:   8084,
+						},
+					},
 				}
 				snap.IngressGateway.Listeners = map[proxycfg.IngressListenerKey]structs.IngressListener{
 					// Omits listener TLS config, should default to gateway TLS config
@@ -676,9 +682,22 @@ func TestListenersFromSnapshot(t *testing.T) {
 							Enabled: true,
 						},
 					},
-					// Disables listener TLS
+					// Explicitly unset gateway default TLS min version in favor of proxy default
 					{Protocol: "http", Port: 8083}: {
 						Port: 8083,
+						Services: []structs.IngressService{
+							{
+								Name: "s3",
+							},
+						},
+						TLS: &structs.GatewayTLSConfig{
+							Enabled:       true,
+							TLSMinVersion: types.TLSVersionAuto,
+						},
+					},
+					// Disables listener TLS
+					{Protocol: "http", Port: 8084}: {
+						Port: 8084,
 						Services: []structs.IngressService{
 							{
 								Name: "s4",
