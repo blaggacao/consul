@@ -8,8 +8,10 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/golang/protobuf/ptypes/wrappers"
+
 	"github.com/hashicorp/consul/agent/proxycfg"
 	"github.com/hashicorp/consul/agent/structs"
+	"github.com/hashicorp/consul/types"
 )
 
 func (s *ResourceGenerator) makeIngressGatewayListeners(address string, cfgSnap *proxycfg.ConfigSnapshot) ([]proto.Message, error) {
@@ -321,8 +323,37 @@ func makeSDSOverrideFilterChains(cfgSnap *proxycfg.ConfigSnapshot,
 	return chains, nil
 }
 
+var EnvoyTLSVersions = map[types.TLSVersion]envoy_tls_v3.TlsParameters_TlsProtocol{
+	types.TLSVersionAuto: envoy_tls_v3.TlsParameters_TLS_AUTO,
+	types.TLSv1_0:        envoy_tls_v3.TlsParameters_TLSv1_0,
+	types.TLSv1_1:        envoy_tls_v3.TlsParameters_TLSv1_1,
+	types.TLSv1_2:        envoy_tls_v3.TlsParameters_TLSv1_2,
+	types.TLSv1_3:        envoy_tls_v3.TlsParameters_TLSv1_3,
+}
+
+func EnvoyTLSCipherSuites(cipherSuites []types.TLSCipherSuite) []string {
+	cipherSuiteStrings := []string{}
+	for _, c := range cipherSuites {
+		cipherSuiteStrings = append(cipherSuiteStrings, types.EnvoyTLSCipherSuiteStrings[c])
+	}
+	return cipherSuiteStrings
+}
+
+// TODO: could these two functions become a single function that takes an interface as an argument?
 func makeTLSParametersFromGatewayTLSConfig(tlsCfg structs.GatewayTLSConfig) *envoy_tls_v3.TlsParameters {
-	return &envoy_tls_v3.TlsParameters{}
+	return &envoy_tls_v3.TlsParameters{
+		TlsMinimumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMinVersion],
+		TlsMaximumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMaxVersion],
+		CipherSuites:              EnvoyTLSCipherSuites(*tlsCfg.CipherSuites),
+	}
+}
+
+func makeTLSParametersFromGatewayServiceTLSConfig(tlsCfg structs.GatewayServiceTLSConfig) *envoy_tls_v3.TlsParameters {
+	return &envoy_tls_v3.TlsParameters{
+		TlsMinimumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMinVersion],
+		TlsMaximumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMaxVersion],
+		CipherSuites:              EnvoyTLSCipherSuites(*tlsCfg.CipherSuites),
+	}
 }
 
 func makeCommonTLSContextFromGatewayTLSConfig(tlsCfg structs.GatewayTLSConfig) *envoy_tls_v3.CommonTlsContext {
@@ -334,7 +365,7 @@ func makeCommonTLSContextFromGatewayTLSConfig(tlsCfg structs.GatewayTLSConfig) *
 
 func makeCommonTLSContextFromGatewayServiceTLSConfig(tlsCfg structs.GatewayServiceTLSConfig) *envoy_tls_v3.CommonTlsContext {
 	return &envoy_tls_v3.CommonTlsContext{
-		TlsParams:                      &envoy_tls_v3.TlsParameters{},
+		TlsParams:                      makeTLSParametersFromGatewayServiceTLSConfig(tlsCfg),
 		TlsCertificateSdsSecretConfigs: makeTLSCertificateSdsSecretConfigsFromSDS(*tlsCfg.SDS),
 	}
 }
