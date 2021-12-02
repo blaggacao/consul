@@ -366,19 +366,35 @@ func EnvoyTLSCipherSuites(cipherSuites []types.TLSCipherSuite) []string {
 
 // TODO: could these two functions become a single function that takes an interface as an argument?
 func makeTLSParametersFromGatewayTLSConfig(tlsCfg structs.GatewayTLSConfig) *envoy_tls_v3.TlsParameters {
-	return &envoy_tls_v3.TlsParameters{
-		TlsMinimumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMinVersion],
-		TlsMaximumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMaxVersion],
-		CipherSuites:              EnvoyTLSCipherSuites(*tlsCfg.CipherSuites),
+	tlsParams := envoy_tls_v3.TlsParameters{}
+
+	if tlsCfg.TLSMinVersion != nil {
+		tlsParams.TlsMinimumProtocolVersion = EnvoyTLSVersions[*tlsCfg.TLSMinVersion]
 	}
+	if tlsCfg.TLSMaxVersion != nil {
+		tlsParams.TlsMaximumProtocolVersion = EnvoyTLSVersions[*tlsCfg.TLSMaxVersion]
+	}
+	if tlsCfg.CipherSuites != nil {
+		tlsParams.CipherSuites = EnvoyTLSCipherSuites(*tlsCfg.CipherSuites)
+	}
+
+	return &tlsParams
 }
 
 func makeTLSParametersFromGatewayServiceTLSConfig(tlsCfg structs.GatewayServiceTLSConfig) *envoy_tls_v3.TlsParameters {
-	return &envoy_tls_v3.TlsParameters{
-		TlsMinimumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMinVersion],
-		TlsMaximumProtocolVersion: EnvoyTLSVersions[*tlsCfg.TLSMaxVersion],
-		CipherSuites:              EnvoyTLSCipherSuites(*tlsCfg.CipherSuites),
+	tlsParams := envoy_tls_v3.TlsParameters{}
+
+	if tlsCfg.TLSMinVersion != nil {
+		tlsParams.TlsMinimumProtocolVersion = EnvoyTLSVersions[*tlsCfg.TLSMinVersion]
 	}
+	if tlsCfg.TLSMaxVersion != nil {
+		tlsParams.TlsMaximumProtocolVersion = EnvoyTLSVersions[*tlsCfg.TLSMaxVersion]
+	}
+	if tlsCfg.CipherSuites != nil {
+		tlsParams.CipherSuites = EnvoyTLSCipherSuites(*tlsCfg.CipherSuites)
+	}
+
+	return &tlsParams
 }
 
 func makeCommonTLSContextFromGatewayTLSConfig(tlsCfg structs.GatewayTLSConfig) *envoy_tls_v3.CommonTlsContext {
