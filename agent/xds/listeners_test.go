@@ -610,6 +610,88 @@ func TestListenersFromSnapshot(t *testing.T) {
 			},
 		},
 		{
+			name:   "ingress-with-tls-mixed-min-version-listeners",
+			create: proxycfg.TestConfigSnapshotIngressWithTLSListener,
+			setup: func(snap *proxycfg.ConfigSnapshot) {
+				snap.IngressGateway.TLSConfig.TLSMinVersion = types.TLSv1_2
+
+				// One listener disables TLS, one inherits TLS minimum version from the gateway
+				// config, two others set different versions
+				snap.IngressGateway.Upstreams = map[proxycfg.IngressListenerKey]structs.Upstreams{
+					{Protocol: "http", Port: 8080}: {
+						{
+							DestinationName: "s1",
+							LocalBindPort:   8080,
+						},
+					},
+					{Protocol: "http", Port: 8081}: {
+						{
+							DestinationName: "s2",
+							LocalBindPort:   8081,
+						},
+					},
+					{Protocol: "http", Port: 8082}: {
+						{
+							DestinationName: "s3",
+							LocalBindPort:   8082,
+						},
+					},
+					{Protocol: "http", Port: 8083}: {
+						{
+							DestinationName: "s4",
+							LocalBindPort:   8083,
+						},
+					},
+				}
+				snap.IngressGateway.Listeners = map[proxycfg.IngressListenerKey]structs.IngressListener{
+					{Protocol: "http", Port: 8080}: {
+						Port: 8080,
+						Services: []structs.IngressService{
+							{
+								Name: "s1",
+							},
+						},
+						TLS: nil,
+					},
+					{Protocol: "http", Port: 8081}: {
+						Port: 8081,
+						Services: []structs.IngressService{
+							{
+								Name: "s2",
+							},
+						},
+						TLS: &structs.GatewayTLSConfig{
+							Enabled: true,
+						},
+					},
+					{Protocol: "http", Port: 8082}: {
+						Port: 8082,
+						Services: []structs.IngressService{
+							{
+								Name: "s3",
+							},
+						},
+						TLS: &structs.GatewayTLSConfig{
+							Enabled:       true,
+							TLSMinVersion: types.TLSv1_0,
+						},
+					},
+					{Protocol: "http", Port: 8083}: {
+						Port: 8083,
+						Services: []structs.IngressService{
+							{
+								Name: "s4",
+							},
+						},
+						TLS: &structs.GatewayTLSConfig{
+							Enabled:       true,
+							TLSMinVersion: types.TLSv1_3,
+						},
+					},
+				}
+			},
+		},
+		{
 			name:   "ingress-with-sds-listener-gw-level",
 			create: proxycfg.TestConfigSnapshotIngressWithGatewaySDS,
 			setup:  nil,
