@@ -692,6 +692,50 @@ func TestListenersFromSnapshot(t *testing.T) {
 			},
 		},
 		{
+			name:   "ingress-with-single-tls-listener",
+			create: proxycfg.TestConfigSnapshotIngress,
+			setup: func(snap *proxycfg.ConfigSnapshot) {
+				// One listener should inherit non-TLS gateway config, another
+				// listener configures TLS with an explicit minimum version
+				snap.IngressGateway.Upstreams = map[proxycfg.IngressListenerKey]structs.Upstreams{
+					{Protocol: "http", Port: 8080}: {
+						{
+							DestinationName: "s1",
+							LocalBindPort:   8080,
+						},
+					},
+					{Protocol: "http", Port: 8081}: {
+						{
+							DestinationName: "s2",
+							LocalBindPort:   8081,
+						},
+					},
+				}
+				snap.IngressGateway.Listeners = map[proxycfg.IngressListenerKey]structs.IngressListener{
+					{Protocol: "http", Port: 8080}: {
+						Port: 8080,
+						Services: []structs.IngressService{
+							{
+								Name: "s1",
+							},
+						},
+					},
+					{Protocol: "http", Port: 8081}: {
+						Port: 8081,
+						Services: []structs.IngressService{
+							{
+								Name: "s2",
+							},
+						},
+						TLS: &structs.GatewayTLSConfig{
+							Enabled:       true,
+							TLSMinVersion: types.TLSv1_2,
+						},
+					},
+				}
+			},
+		},
+		{
 			name:   "ingress-with-tls-mixed-min-version-listeners",
 			create: proxycfg.TestConfigSnapshotIngressWithTLSListener,
 			setup: func(snap *proxycfg.ConfigSnapshot) {
