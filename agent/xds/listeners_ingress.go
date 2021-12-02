@@ -173,7 +173,7 @@ func makeCommonTLSContextFromSnapshotListenerConfig(cfgSnap *proxycfg.ConfigSnap
 		// Set up listener TLS from SDS
 		tlsContext = makeCommonTLSContextFromGatewayTLSConfig(*tlsCfg)
 	} else if connectTLSEnabled {
-		tlsContext = makeCommonTLSContextFromLeaf(cfgSnap, cfgSnap.Leaf())
+		tlsContext = makeCommonTLSContextFromLeaf(cfgSnap, cfgSnap.Leaf(), makeTLSParametersFromGatewayTLSConfig(*tlsCfg))
 	}
 
 	return tlsContext, err
